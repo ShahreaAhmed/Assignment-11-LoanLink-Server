@@ -94,13 +94,6 @@ async function run() {
       res.send(result);
     });
 
-    //get borrower my-loan data
-    // app.get("/borrowerLoansApply/:email", async (req, res) => {
-    //   const email = req.params.email
-    //   const result = await applyLoansCollection.find({email: email}).toArray();
-    //   console.log(result)
-    //   res.send(result);
-    // });
 
     // get all loan application for a borrower by email
     app.get('/my-loans/:email', async (req, res) => {
@@ -110,6 +103,16 @@ async function run() {
      const result = await applyLoansCollection.find({email}).toArray()
      res.send(result)
     })
+
+    // get manage add loan data for a manager by email
+    app.get("/manage-loans/:email", async (req, res) => {
+      const email = req.params.email
+      const result = await loansCollection.find({'createdBy.email': email}).toArray();
+      console.log(result)
+      res.send(result);
+    });
+
+    
 
     // Payment endpoints
     app.post("/create-checkout-session", async (req, res) => {
