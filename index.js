@@ -56,6 +56,7 @@ async function run() {
     const loansCollection = db.collection("loans");
     const applyLoansCollection = db.collection("borrowerLoansApply");
     const paymentCollection = db.collection("payments")
+    const userCollection = db.collection("users")
 
     // Save a manager create loan data in db
     app.post("/loans", async (req, res) => {
@@ -95,19 +96,33 @@ async function run() {
     });
 
 
+    // BORROWER ROUTE
+
     // get all loan application for a borrower by email
     app.get('/my-loans/:email', async (req, res) => {
       const email = req.params.email
       console.log('email param', email)
 
-     const result = await applyLoansCollection.find({email}).toArray()
+     const result = await applyLoansCollection.find({borrowerEmail: email}).toArray()
      res.send(result)
     })
+
+
+    // MANAGER ROUTE
 
     // get manage add loan data for a manager by email
     app.get("/manage-loans/:email", async (req, res) => {
       const email = req.params.email
       const result = await loansCollection.find({'createdBy.email': email}).toArray();
+      console.log(result)
+      res.send(result);
+    });
+
+
+    // get Pending Applications loan data for a manager
+    app.get("/pending-applications/:email", async (req, res) => {
+      const email = req.params.email
+      const result = await applyLoansCollection.find({borrowerEmail: email}).toArray();
       console.log(result)
       res.send(result);
     });
@@ -148,7 +163,7 @@ async function run() {
     });
 
     //payment paid and status change to unpaid to paid
-    app.post('/payment-paid', async (req, res) => {
+    app.post("/payment-paid", async (req, res) => {
       const {sessionId} = req.body
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       console.log(session)
@@ -172,6 +187,31 @@ async function run() {
         }
         const result = await paymentCollection.insertOne(loanApplyInfo)
       }
+    })
+
+
+    // save or update a user in db
+    app.post("/user", async (req, res) => {
+      const userData = req.body
+
+      userData.created_at = new Date().toISOString()
+      userData.last_loggedIn = new Date().toISOString()
+
+      const query = {email: userData.email}
+
+      const alreadyExists = await userCollection.findOne(query)
+      console.log('user already Exists---->', !!alreadyExists)
+
+      if (alreadyExists) {
+        console.log('Updating user info......')
+
+        const result = await userCollection.updateOne(query, {$set:{last_loggedIn: new Date().toISOString()}})
+        return res.send(result)
+      }
+
+
+      const result = await userCollection.insertOne(userData)
+      res.send(result)
     })
 
     // Send a ping to confirm a successful connection
