@@ -76,11 +76,6 @@ async function run() {
       res.send(result);
     });
 
-    // get borrower all apply loan from db
-    app.get("/apply-loans", async (req, res) => {
-      const result = await paymentCollection.find().toArray();
-      res.send(result);
-    });
 
     // get all loans from db
     app.get("/loans/:id", async (req, res) => {
@@ -131,8 +126,6 @@ async function run() {
       console.log(result)
       res.send(result);
     });
-
-    
 
     // Payment endpoints
     app.post("/create-checkout-session", async (req, res) => {
@@ -251,6 +244,12 @@ async function run() {
       
       res.send(result)
     })
+
+     // get borrower all apply loan from db
+    app.get("/apply-loans", async (req, res) => {
+      const result = await paymentCollection.find().toArray();
+      res.send(result);
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
