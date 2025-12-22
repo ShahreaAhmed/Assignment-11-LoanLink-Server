@@ -76,6 +76,12 @@ async function run() {
       res.send(result);
     });
 
+    // get borrower all apply loan from db
+    app.get("/apply-loans", async (req, res) => {
+      const result = await paymentCollection.find().toArray();
+      res.send(result);
+    });
+
     // get all loans from db
     app.get("/loans/:id", async (req, res) => {
       const id = req.params.id;
@@ -99,11 +105,10 @@ async function run() {
     // BORROWER ROUTE
 
     // get all loan application for a borrower by email
-    app.get('/my-loans/:email', async (req, res) => {
-      const email = req.params.email
-      console.log('email param', email)
+    app.get('/my-loans', verifyJWT, async (req, res) => {
+      // console.log('email param', email)
 
-     const result = await applyLoansCollection.find({borrowerEmail: email}).toArray()
+     const result = await applyLoansCollection.find({borrowerEmail: req.tokenEmail}).toArray()
      res.send(result)
     })
 
@@ -151,12 +156,14 @@ async function run() {
         mode: 'payment',
         metadata: {
           loanId: paymentInfo?.loanId,
+          name: paymentInfo?.borrower?.name,
           borrower: paymentInfo?.borrower?.email,
           loanTitle: paymentInfo?.title,
           category: paymentInfo?.category,
           loanAmount: paymentInfo?.loanAmount
         },
-        success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans?session_id={CHECKOUT_SESSION_ID}`,
+        // success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans?session_id={CHECKOUT_SESSION_ID}`,
+        success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`,
         cancel_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`
       });
       res.send({ url: session.url})
@@ -178,6 +185,7 @@ async function run() {
           loanId: session.metadata.loanId,
           transactionId: session.payment_intent,
           borrower: session.metadata.borrower,
+          name: session.metadata.name,
           status: 'pending',
           amount: session.amount_total / 100,
           loanTitle: session.metadata.loanTitle,
@@ -189,10 +197,13 @@ async function run() {
       }
     })
 
-
     // save or update a user in db
     app.post("/user", async (req, res) => {
       const userData = req.body
+
+    // default role if not provided
+      userData.role = userData.role || "borrower";
+      userData.status = "active"
 
       userData.created_at = new Date().toISOString()
       userData.last_loggedIn = new Date().toISOString()
@@ -209,8 +220,35 @@ async function run() {
         return res.send(result)
       }
 
+      // const newUser
 
+
+      console.log('Saving new user info......')
       const result = await userCollection.insertOne(userData)
+      res.send(result)
+    })
+
+    // get a user's role
+    app.get("/user/role", verifyJWT, async (req, res) => {
+      const result = await userCollection.findOne({email: req.tokenEmail})
+      res.send({role: result?.role})
+    })
+
+
+    // ADMIN ROUTE
+
+    //get all user for admin
+    app.get('/all-user', verifyJWT, async (req, res) => {
+      const adminEmail = req.tokenEmail
+      const result = await userCollection.find({email: {$ne: adminEmail}}).toArray()
+      res.send(result)
+    })
+
+    // update a user's role
+    app.patch('/update-role', verifyJWT, async (req, res) => {
+      const {email, role} = req.body
+      const result = await userCollection.updateOne({email}, {$set: {role}})
+      
       res.send(result)
     })
 
@@ -232,3 +270,8 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
+
+
+// app.listen(port, () => {
+//   console.log(`Server is running on port ${port}`);
+// });
