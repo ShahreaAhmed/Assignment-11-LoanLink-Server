@@ -245,7 +245,7 @@ async function run() {
       res.send(result)
     })
 
-     // get borrower 
+     // get borrower all apply loan from db
     app.get("/apply-loans", async (req, res) => {
       const result = await paymentCollection.find().toArray();
       res.send(result);
