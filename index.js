@@ -155,8 +155,8 @@ async function run() {
           category: paymentInfo?.category,
           loanAmount: paymentInfo?.loanAmount
         },
-        // success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans?session_id={CHECKOUT_SESSION_ID}`,
-        success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`,
+        success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans?session_id={CHECKOUT_SESSION_ID}`,
+        // success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`,
         cancel_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`
       });
       res.send({ url: session.url})
