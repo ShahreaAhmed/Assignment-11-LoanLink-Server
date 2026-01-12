@@ -55,8 +55,8 @@ async function run() {
     const db = client.db("loanLink-db");
     const loansCollection = db.collection("loans");
     const applyLoansCollection = db.collection("borrowerLoansApply");
-    const paymentCollection = db.collection("payments")
-    const userCollection = db.collection("users")
+    const paymentCollection = db.collection("payments");
+    const userCollection = db.collection("users");
 
     // Save a manager create loan data in db
     app.post("/loans", async (req, res) => {
@@ -76,7 +76,6 @@ async function run() {
       res.send(result);
     });
 
-
     // get all loans from db
     app.get("/loans/:id", async (req, res) => {
       const id = req.params.id;
@@ -91,163 +90,259 @@ async function run() {
 
       // //auto form submit time
       borrowerLoanData.createdAt = new Date().toISOString();
+      borrowerLoanData.status = "pending";
+      borrowerLoanData.applicationFeeStatus = "unpaid";
 
       const result = await applyLoansCollection.insertOne(borrowerLoanData);
       res.send(result);
     });
 
-
     // BORROWER ROUTE
 
     // get all loan application for a borrower by email
-    app.get('/my-loans', verifyJWT, async (req, res) => {
+    app.get("/my-loans", verifyJWT, async (req, res) => {
       // console.log('email param', email)
 
-     const result = await applyLoansCollection.find({borrowerEmail: req.tokenEmail}).toArray()
-     res.send(result)
-    })
-
+      const result = await applyLoansCollection
+        .find({ borrowerEmail: req.tokenEmail })
+        .toArray();
+      res.send(result);
+    });
 
     // MANAGER ROUTE
 
     // get manage add loan data for a manager by email
     app.get("/manage-loans/:email", async (req, res) => {
-      const email = req.params.email
-      const result = await loansCollection.find({'createdBy.email': email}).toArray();
-      console.log(result)
+      const email = req.params.email;
+      const result = await loansCollection
+        .find({ "createdBy.email": email })
+        .toArray();
+      console.log(result);
       res.send(result);
     });
 
+    // manager created loan update
+    app.patch("/update-loan/:id", async (req, res) => {
+      const id = new ObjectId(req.params.id);
+
+      const result = await loansCollection.updateOne(
+        { _id: id },
+        { $set: req.body }
+      );
+
+      res.send(result);
+    });
 
     // get Pending Applications loan data for a manager
     app.get("/pending-applications/:email", async (req, res) => {
-      const email = req.params.email
-      const result = await applyLoansCollection.find({borrowerEmail: email}).toArray();
-      console.log(result)
+      const email = req.params.email;
+
+      const result = await applyLoansCollection
+        .find({
+          "manager.email": email,
+          status: "pending",
+        })
+        .toArray();
+
       res.send(result);
     });
+
+    // Update status Approved and Rejected
+    app.patch("/applications/status/:id", async (req, res) => {
+  const id = req.params.id;
+  const { status } = req.body; // approved | rejected
+
+  if (!["approved", "rejected"].includes(status)) {
+    return res.status(400).send({ message: "Invalid status" });
+  }
+
+  const result = await applyLoansCollection.updateOne(
+    {
+      _id: new ObjectId(id),
+      applicationFeeStatus: "paid", 
+    },
+    {
+      $set: {
+        status,
+        decisionAt: new Date().toISOString(),
+      },
+    }
+  );
+
+  res.send(result);
+});
+
+
+// get approved applications
+app.get("/approved-applications", async (req, res) => {
+  const result = await applyLoansCollection.find({
+    status: "approved",
+    applicationFeeStatus: "paid"
+  }).toArray();
+
+  res.send(result);
+});
+
 
     // Payment endpoints
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
-      console.log(paymentInfo)
+      console.log(paymentInfo);
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
             price_data: {
-              currency: 'usd',
+              currency: "usd",
               product_data: {
                 name: paymentInfo?.borrower.name,
-                images: [paymentInfo?.borrower?.image]
+                images: [paymentInfo?.borrower?.image],
               },
-              unit_amount: 1000
+              unit_amount: 1000,
             },
             quantity: 1,
           },
         ],
         customer_email: paymentInfo?.borrower?.email,
-        mode: 'payment',
+        mode: "payment",
         metadata: {
           loanId: paymentInfo?.loanId,
           name: paymentInfo?.borrower?.name,
           borrower: paymentInfo?.borrower?.email,
           loanTitle: paymentInfo?.title,
           category: paymentInfo?.category,
-          loanAmount: paymentInfo?.loanAmount
+          loanAmount: paymentInfo?.loanAmount,
         },
         success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans?session_id={CHECKOUT_SESSION_ID}`,
         // success_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`,
-        cancel_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`
+        cancel_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`,
       });
-      res.send({ url: session.url})
+      res.send({ url: session.url });
     });
 
     //payment paid and status change to unpaid to paid
-    app.post("/payment-paid", async (req, res) => {
-      const {sessionId} = req.body
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
-      console.log(session)
-      
-      const loan = await applyLoansCollection.findOne({_id: new ObjectId(session.metadata.loanId)})
-      
-      const payment = await paymentCollection.findOne({transactionId: session.payment_intent})
 
-      if(session.payment_status === 'paid' && loan && !payment) {
-        //save order data in db
-        const loanApplyInfo = {
-          loanId: session.metadata.loanId,
-          transactionId: session.payment_intent,
-          borrower: session.metadata.borrower,
-          name: session.metadata.name,
-          status: 'pending',
-          amount: session.amount_total / 100,
-          loanTitle: session.metadata.loanTitle,
-          category: session.metadata.category,
-          loanAmount: loan.loanAmount,
-          date: new Date().toISOString(),
+    app.post("/payment-paid", async (req, res) => {
+      const { sessionId } = req.body;
+
+      try {
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        if (session.payment_status !== "paid") {
+          return res.status(400).send({ message: "Payment not completed" });
         }
-        const result = await paymentCollection.insertOne(loanApplyInfo)
+
+        const loanId = session.metadata.loanId;
+
+        // Fetch the loan application to get loanAmount
+        const loan = await applyLoansCollection.findOne({
+          _id: new ObjectId(loanId),
+        });
+
+        if (!loan) {
+          return res.status(404).send({ message: "Loan not found" });
+        }
+
+        // Update application fee status
+        await applyLoansCollection.updateOne(
+          { _id: new ObjectId(loanId) },
+          {
+            $set: {
+              applicationFeeStatus: "paid",
+              paidAt: new Date().toISOString(),
+            },
+          }
+        );
+
+        // Save payment record
+        const alreadyPaid = await paymentCollection.findOne({
+          transactionId: session.payment_intent,
+        });
+
+        if (!alreadyPaid) {
+          await paymentCollection.insertOne({
+            loanId,
+            transactionId: session.payment_intent,
+            borrower: session.metadata.borrower,
+            name: session.metadata.name,
+            loanTitle: session.metadata.loanTitle,
+            category: session.metadata.category,
+            loanAmount: loan.loanAmount,
+            amount: session.amount_total / 100,
+            status: "paid",
+            date: new Date().toISOString(),
+          });
+        }
+
+        res.send({ success: true });
+      } catch (err) {
+        console.error("Payment failed:", err);
+        res.status(500).send({ message: "Payment processing failed", err });
       }
-    })
+    });
 
     // save or update a user in db
     app.post("/user", async (req, res) => {
-      const userData = req.body
+      const userData = req.body;
 
-    // default role if not provided
+      // default role if not provided
       userData.role = userData.role || "borrower";
-      userData.status = "active"
+      userData.status = "active";
 
-      userData.created_at = new Date().toISOString()
-      userData.last_loggedIn = new Date().toISOString()
+      userData.created_at = new Date().toISOString();
+      userData.last_loggedIn = new Date().toISOString();
 
-      const query = {email: userData.email}
+      const query = { email: userData.email };
 
-      const alreadyExists = await userCollection.findOne(query)
-      console.log('user already Exists---->', !!alreadyExists)
+      const alreadyExists = await userCollection.findOne(query);
+      console.log("user already Exists---->", !!alreadyExists);
 
       if (alreadyExists) {
-        console.log('Updating user info......')
+        console.log("Updating user info......");
 
-        const result = await userCollection.updateOne(query, {$set:{last_loggedIn: new Date().toISOString()}})
-        return res.send(result)
+        const result = await userCollection.updateOne(query, {
+          $set: { last_loggedIn: new Date().toISOString() },
+        });
+        return res.send(result);
       }
 
       // const newUser
 
-
-      console.log('Saving new user info......')
-      const result = await userCollection.insertOne(userData)
-      res.send(result)
-    })
+      console.log("Saving new user info......");
+      const result = await userCollection.insertOne(userData);
+      res.send(result);
+    });
 
     // get a user's role
     app.get("/user/role", verifyJWT, async (req, res) => {
-      const result = await userCollection.findOne({email: req.tokenEmail})
-      res.send({role: result?.role})
-    })
-
+      const result = await userCollection.findOne({ email: req.tokenEmail });
+      res.send({ role: result?.role });
+    });
 
     // ADMIN ROUTE
 
     //get all user for admin
-    app.get('/all-user', verifyJWT, async (req, res) => {
-      const adminEmail = req.tokenEmail
-      const result = await userCollection.find({email: {$ne: adminEmail}}).toArray()
-      res.send(result)
-    })
+    app.get("/all-user", verifyJWT, async (req, res) => {
+      const adminEmail = req.tokenEmail;
+      const result = await userCollection
+        .find({ email: { $ne: adminEmail } })
+        .toArray();
+      res.send(result);
+    });
 
     // update a user's role
-    app.patch('/update-role', verifyJWT, async (req, res) => {
-      const {email, role} = req.body
-      const result = await userCollection.updateOne({email}, {$set: {role}})
-      
-      res.send(result)
-    })
+    app.patch("/update-role", verifyJWT, async (req, res) => {
+      const { email, role } = req.body;
+      const result = await userCollection.updateOne(
+        { email },
+        { $set: { role } }
+      );
 
-     // get borrower all apply loan from db
-    app.get("/apply-loans", async (req, res) => {
-      const result = await paymentCollection.find().toArray();
+      res.send(result);
+    });
+
+    // get borrower all apply loan from db
+    app.get("/borrowerLoansApply", async (req, res) => {
+      const result = await applyLoansCollection.find({ applicationFeeStatus: "paid" }).toArray();
       res.send(result);
     });
 
@@ -269,4 +364,3 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
-
